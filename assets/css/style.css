@@ -1,0 +1,249 @@
+/* Main Styles for Faculty Leave Management System */
+
+body {
+    font-size: .875rem;
+    background-color: #f8f9fa;
+}
+
+/* Sidebar */
+.sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    padding: 48px 0 0;
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+}
+
+.sidebar-sticky {
+    position: relative;
+    top: 0;
+    height: calc(100vh - 48px);
+    padding-top: .5rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.sidebar .nav-link {
+    font-weight: 500;
+    color: #333;
+    padding: .5rem 1rem;
+}
+
+.sidebar .nav-link.active {
+    color: #007bff;
+}
+
+.sidebar .nav-link:hover {
+    color: #007bff;
+}
+
+.sidebar .nav-link .feather {
+    margin-right: 4px;
+    color: #999;
+}
+
+.sidebar .nav-link.active .feather {
+    color: inherit;
+}
+
+.sidebar-heading {
+    font-size: .75rem;
+    text-transform: uppercase;
+}
+
+.sidebar .nav-header {
+    padding: 0.5rem 1rem;
+}
+
+/* Navbar */
+.navbar-brand {
+    padding-top: .75rem;
+    padding-bottom: .75rem;
+    font-size: 1rem;
+    background-color: rgba(0, 0, 0, .25);
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .25);
+}
+
+/* Content */
+[role="main"] {
+    padding-top: 48px;
+}
+
+.main-content {
+    padding: 1.5rem;
+}
+
+/* Cards */
+.card {
+    margin-bottom: 1.5rem;
+    border: none;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.card-header {
+    background-color: #fff;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+/* Forms */
+.form-control:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.form-group label {
+    font-weight: 500;
+}
+
+/* Tables */
+.table th {
+    font-weight: 600;
+    background-color: #f8f9fa;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.075);
+}
+
+/* Badges */
+.badge {
+    font-weight: 500;
+    padding: 0.4em 0.6em;
+}
+
+/* Custom styles for leave application form */
+.leave-form .form-section {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.leave-form .form-section-title {
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.class-adjustment-row {
+    background-color: #f8f9fa;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    border: 1px solid #dee2e6;
+}
+
+/* Dashboard styles */
+.dashboard-stat {
+    text-align: center;
+    padding: 1.5rem;
+    border-radius: 0.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.dashboard-stat-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.dashboard-stat-number {
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+.dashboard-stat-label {
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Leave register styles */
+.leave-balance-card {
+    border-left: 4px solid;
+    transition: transform 0.2s;
+}
+
+.leave-balance-card:hover {
+    transform: translateY(-5px);
+}
+
+.leave-balance-card.casual {
+    border-left-color: #28a745;
+}
+
+.leave-balance-card.earned {
+    border-left-color: #007bff;
+}
+
+.leave-balance-card.medical {
+    border-left-color: #dc3545;
+}
+
+.leave-balance-card.other {
+    border-left-color: #6c757d;
+}
+
+/* Status colors */
+.status-pending {
+    color: #ffc107;
+}
+
+.status-approved {
+    color: #28a745;
+}
+
+.status-rejected {
+    color: #dc3545;
+}
+
+/* Responsive adjustments */
+@media (max-width: 767.98px) {
+    .sidebar {
+        top: 5rem;
+    }
+    
+    .dashboard-stat {
+        margin-bottom: 1rem;
+    }
+}
+
+/* Footer */
+.footer {
+    background-color: #f5f5f5;
+    padding: 1rem 0;
+    margin-top: 2rem;
+}
+
+/* Print styles */
+@media print {
+    .sidebar, .navbar, .no-print {
+        display: none !important;
+    }
+    
+    .container-fluid {
+        width: 100%;
+        padding: 0;
+        margin: 0;
+    }
+    
+    .card {
+        box-shadow: none;
+        border: 1px solid #dee2e6;
+    }
+    
+    body {
+        font-size: 12pt;
+    }
+    
+    h1 {
+        font-size: 18pt;
+    }
+    
+    h2 {
+        font-size: 16pt;
+    }
+    
+    h3 {
+        font-size: 14pt;
+    }
+}

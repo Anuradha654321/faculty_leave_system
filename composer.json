@@ -1,0 +1,22 @@
+{
+    "name": "hp/faculty_leave_system",
+    "description": "Faculty Leave Management System for educational institutions with support for multiple leave types, class adjustments, and multi-level approval workflows.",
+    "type": "project",
+    "require": {
+        "cloudframework-io/tcpdi_cf": "^1.0",
+        "sunkangchina/think-filesystem": "^1.0",
+        "phpmailer/phpmailer": "^6.10"
+    },
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Hp\\FacultyLeaveSystem\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Gayathri",
+            "email": "gayathrisistu.gcsj@gmail.com"
+        }
+    ]
+}

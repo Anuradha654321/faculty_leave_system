@@ -1,0 +1,71 @@
+.leave-period-section {
+    position: relative;
+}
+
+.leave-period-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.casual-leave-container {
+    display: none;
+}
+
+.selected-dates-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.date-input-container {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.remove-date-btn {
+    display: none;
+}
+
+.suggestions-container {
+    position: absolute;
+    z-index: 1000;
+    width: 100%;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-top: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.suggestions-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.suggestions-list li {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.suggestions-list li:hover {
+    background-color: #f5f5f5;
+}
+
+.class-details-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.class-details-container .row {
+    display: flex;
+    gap: 1rem;
+}
+
+.class-details-container .col-md-3 {
+    flex: 1;
+    min-width: 150px;
+}

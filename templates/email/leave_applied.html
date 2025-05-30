@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Leave Application Submitted</title>
+</head>
+<body style="font-family: Arial, sans-serif;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2>Leave Application Submitted</h2>
+        
+        <p>Dear Faculty Member,</p>
+        
+        <p>Your leave application has been submitted successfully. Here are the details:</p>
+        
+        <ul>
+            <li><strong>Leave Type:</strong> {{LEAVE_TYPE}}</li>
+            <li><strong>Start Date:</strong> {{START_DATE}}</li>
+            <li><strong>End Date:</strong> {{END_DATE}}</li>
+            <li><strong>Reason:</strong> {{REASON}}</li>
+        </ul>
+        
+        <p>Your application is now pending approval. You will receive an email notification once it has been processed.</p>
+        
+        <p>Leave ID: {{LEAVE_ID}}</p>
+        
+        <p>Best regards,<br>
+        Faculty Leave Management System</p>
+    </div>
+</body>
+</html>
