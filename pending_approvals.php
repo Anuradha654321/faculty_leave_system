@@ -418,8 +418,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_application'])
                                         INNER JOIN leave_applications la ON lb.user_id = la.user_id 
                                         AND lb.leave_type_id = la.leave_type_id
                                         AND lb.year = YEAR(CURDATE())
-                                        SET lb.used_days = lb.used_days + la.total_days,
-                                            lb.remaining_days = lb.total_days - (lb.used_days + la.total_days)
+                                        SET lb.used_days = lb.used_days + la.total_days
                                         WHERE la.application_id = ?";
                     $updateBalanceStmt = $conn->prepare($updateBalanceQuery);
                     $updateBalanceStmt->bind_param("i", $applicationId);
