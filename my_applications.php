@@ -85,46 +85,101 @@ function getClassAdjustments($applicationId) {
     return $adjustments;
 }
 
-// Cancel leave application
-if (isset($_GET['cancel']) && is_numeric($_GET['cancel'])) {
-    $applicationId = intval($_GET['cancel']);
-    $userId = $_SESSION['user_id'];
-    
+// Function to cancel leave application
+function cancelLeaveApplication($applicationId, $userId) {
     $conn = connectDB();
-    
-    // Check if the application belongs to the user and is in a cancellable state
-    $query = "SELECT status FROM leave_applications 
-              WHERE application_id = ? AND user_id = ? 
-              AND status IN ('pending', 'approved_by_hod')";
-    
-    $stmt = $conn->prepare($query);
-    $stmt->bind_param("ii", $applicationId, $userId);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($result->num_rows === 1) {
+    if (!$conn) {
+        return ['success' => false, 'message' => 'Database connection failed'];
+    }
+
+    try {
+        $conn->begin_transaction();
+
+        // Check if the application belongs to the user and is in a cancellable state
+        $query = "SELECT la.*, lt.type_name 
+                  FROM leave_applications la
+                  JOIN leave_types lt ON la.leave_type_id = lt.type_id
+                  WHERE la.application_id = ? AND la.user_id = ? 
+                  AND la.status IN ('pending', 'approved_by_hod')";
+        
+        $stmt = $conn->prepare($query);
+        $stmt->bind_param("ii", $applicationId, $userId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows === 0) {
+            throw new Exception('Unable to cancel this leave application. It may be already approved or does not belong to you.');
+        }
+
+        $application = $result->fetch_assoc();
+        
         // Update application status to cancelled
         $updateQuery = "UPDATE leave_applications SET status = 'cancelled' WHERE application_id = ?";
         $updateStmt = $conn->prepare($updateQuery);
         $updateStmt->bind_param("i", $applicationId);
-        $updateStmt->execute();
+        if (!$updateStmt->execute()) {
+            throw new Exception('Failed to update leave status.');
+        }
+
+        // Add notification for HOD
+        $hodQuery = "SELECT user_id FROM users 
+                     WHERE role_id = (SELECT role_id FROM roles WHERE role_name = 'hod') 
+                     AND dept_id = (SELECT dept_id FROM users WHERE user_id = ?)";
+        $hodStmt = $conn->prepare($hodQuery);
+        $hodStmt->bind_param("i", $userId);
+        $hodStmt->execute();
+        $hodResult = $hodStmt->get_result();
         
-        // Add to leave history
-        $historyQuery = "INSERT INTO leave_history (application_id, status_from, status_to, remarks, updated_by) 
-                         VALUES (?, ?, 'cancelled', 'Cancelled by user', ?)";
-        $historyStmt = $conn->prepare($historyQuery);
-        $statusFrom = $result->fetch_assoc()['status'];
-        $historyStmt->bind_param("isi", $applicationId, $statusFrom, $userId);
-        $historyStmt->execute();
-        
-        // Set success message
-        setFlashMessage('success', 'Leave application cancelled successfully.');
-    } else {
-        // Set error message
-        setFlashMessage('danger', 'Unable to cancel this leave application. It may be already approved or does not belong to you.');
+        if ($hodRow = $hodResult->fetch_assoc()) {
+            $notificationQuery = "INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)";
+            $notificationStmt = $conn->prepare($notificationQuery);
+            
+            $title = "Leave Application Cancelled";
+            $message = "Leave application #$applicationId has been cancelled by the faculty member.";
+            
+            $notificationStmt->bind_param("iss", $hodRow['user_id'], $title, $message);
+            $notificationStmt->execute();
+        }
+
+        // Try to add to leave history if the table exists
+        try {
+            // Check if leave_history table exists
+            $tableCheckQuery = "SHOW TABLES LIKE 'leave_history'";
+            $tableExists = $conn->query($tableCheckQuery)->num_rows > 0;
+            
+            if ($tableExists) {
+                $historyQuery = "INSERT INTO leave_history (application_id, status_from, status_to, remarks, updated_by) 
+                                VALUES (?, ?, 'cancelled', 'Cancelled by faculty', ?)";
+                $historyStmt = $conn->prepare($historyQuery);
+                $historyStmt->bind_param("isi", $applicationId, $application['status'], $userId);
+                $historyStmt->execute();
+            }
+        } catch (Exception $e) {
+            // Log the error but don't stop the cancellation process
+            error_log("Failed to update leave history: " . $e->getMessage());
+        }
+
+        $conn->commit();
+        return ['success' => true, 'message' => 'Leave application cancelled successfully.'];
+    } catch (Exception $e) {
+        $conn->rollback();
+        return ['success' => false, 'message' => $e->getMessage()];
+    } finally {
+        closeDB($conn);
     }
+}
+
+// Handle cancellation request
+if (isset($_GET['cancel']) && is_numeric($_GET['cancel'])) {
+    $applicationId = intval($_GET['cancel']);
+    $userId = $_SESSION['user_id'];
     
-    closeDB($conn);
+    $result = cancelLeaveApplication($applicationId, $userId);
+    if ($result['success']) {
+        setFlashMessage('success', $result['message']);
+    } else {
+        setFlashMessage('danger', $result['message']);
+    }
     
     // Redirect to prevent resubmission
     redirect(BASE_URL . 'my_applications.php');
@@ -204,6 +259,7 @@ foreach ($applications as $application) {
                                             <th>Days</th>
                                             <th>Applied On</th>
                                             <th>Status</th>
+                                            <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -238,6 +294,14 @@ foreach ($applications as $application) {
                                                             break;
                                                     }
                                                     ?>
+                                                </td>
+                                                <td>
+                                                    <?php if (in_array($application['status'], ['pending', 'approved_by_hod'])): ?>
+                                                        <a href="#" class="btn btn-sm btn-danger" 
+                                                           onclick="confirmCancel(<?php echo $application['application_id']; ?>)">
+                                                            <i class="fas fa-times"></i> Cancel
+                                                        </a>
+                                                    <?php endif; ?>
                                                 </td>
                                             </tr>
                                             
@@ -318,6 +382,12 @@ foreach ($applications as $application) {
                 ]
             });
         });
+
+        function confirmCancel(applicationId) {
+            if (confirm('Are you sure you want to cancel this leave application?')) {
+                window.location.href = '<?php echo BASE_URL; ?>my_applications.php?cancel=' + applicationId;
+            }
+        }
     </script>
 </body>
 </html>
