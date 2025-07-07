@@ -99,83 +99,144 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     try {
-        $leaveTypeId = $_POST['leave_type_id'];
-        $dateRange = $_POST['date_range'];
-        $reason = $_POST['reason'];
-        $totalDays = floatval($_POST['total_days']);
+        // Check if this is a permission leave
+        $isPermission = isset($_POST['is_permission']) && $_POST['is_permission'] == 1;
         
-        // Check if it's a casual leave type (assuming IDs 2 and 3 are for casual leave)
-        $isCasualLeave = ($leaveTypeId == '2' || $leaveTypeId == '3'); // Casual leave prior or emergency
-        
-        if ($isCasualLeave && strpos($dateRange, ',') !== false) {
-            // For casual leave with multiple individual dates
-            $individualDates = explode(',', $dateRange);
-            $startDate = date('Y-m-d', strtotime($individualDates[0])); // First date as start date
-            $endDate = date('Y-m-d', strtotime($individualDates[count($individualDates)-1])); // Last date as end date
-        } else {
-            // For other leave types or casual leave with date range
-            $dates = explode(' to ', $dateRange);
-            $startDate = date('Y-m-d', strtotime($dates[0]));
-            // Check if second date exists before using it
-            if (isset($dates[1])) {
-                $endDate = date('Y-m-d', strtotime($dates[1]));
-            } else {
-                // If no end date is provided, use the start date
-                $endDate = $startDate;
+        if ($isPermission) {
+            // Handle permission leave
+            $permissionDate = $_POST['permission_date'];
+            $permissionSlot = $_POST['permission_slot'];
+            $reason = $_POST['reason'];
+            
+            // Validate permission date
+            if (empty($permissionDate)) {
+                throw new Exception('Please select a date for the permission.');
             }
-        }
+            
+            // Set start and end dates to the same day for permission leave
+            $startDate = date('Y-m-d', strtotime($permissionDate));
+            $endDate = $startDate;
+            $totalDays = 0.5; // Half day for permission leave
+            $leaveTypeId = 0; // Will be set to permission leave type ID
+            
+            // Get permission leave type ID
+            $leaveTypeQuery = "SELECT type_id FROM leave_types WHERE type_name = 'permission_leave' LIMIT 1";
+            $result = $conn->query($leaveTypeQuery);
+            if ($result->num_rows > 0) {
+                $row = $result->fetch_assoc();
+                $leaveTypeId = $row['type_id'];
+            } else {
+                throw new Exception('Permission leave type not found in the system.');
+            }
+        } else {
+            // Handle regular leave
+            $leaveTypeId = $_POST['leave_type_id'];
+            $dateRange = $_POST['date_range'];
+            $reason = $_POST['reason'];
+            $totalDays = floatval($_POST['total_days']);
+            
+            // Check if it's a casual leave type (assuming IDs 2 and 3 are for casual leave)
+            $isCasualLeave = ($leaveTypeId == '2' || $leaveTypeId == '3'); // Casual leave prior or emergency
+            
+            if ($isCasualLeave && strpos($dateRange, ',') !== false) {
+                // For casual leave with multiple individual dates
+                $individualDates = explode(',', $dateRange);
+                $startDate = date('Y-m-d', strtotime($individualDates[0])); // First date as start date
+                $endDate = date('Y-m-d', strtotime($individualDates[count($individualDates)-1])); // Last date as end date
+            } else {
+                // For other leave types or casual leave with date range
+                $dates = explode(' to ', $dateRange);
+                $startDate = date('Y-m-d', strtotime($dates[0]));
+                // Check if second date exists before using it
+                if (isset($dates[1])) {
+                    $endDate = date('Y-m-d', strtotime($dates[1]));
+                } else {
+                    // If no end date is provided, use the start date
+                    $endDate = $startDate;
+                }
+            }
         
-        // Validate input
-        if (empty($leaveTypeId) || empty($dateRange) || empty($reason) || $totalDays <= 0) {
-            throw new Exception('Please fill in all required fields.');
-        }
+            // Validate input
+            if (empty($leaveTypeId) || empty($dateRange) || empty($reason) || $totalDays <= 0) {
+                throw new Exception('Please fill in all required fields.');
+            }
         
-        $userId = $_SESSION['user_id'];
+            $userId = $_SESSION['user_id'];
+            
+            // Check if there's an existing leave application for the same period
+            $query = "SELECT COUNT(*) as count FROM leave_applications 
+                      WHERE user_id = ? 
+                      AND DATE(start_date) <= DATE(?)
+                      AND DATE(end_date) >= DATE(?)
+                      AND status != 'rejected'";
+            
+            $stmt = $conn->prepare($query);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare statement: " . $conn->error);
+            }
+            
+            $stmt->bind_param("iss", $userId, $endDate, $startDate);
+            if (!$stmt->execute()) {
+                throw new Exception("Failed to execute query: " . $stmt->error);
+            }
+            
+            $result = $stmt->get_result();
+            $row = $result->fetch_assoc();
+            
+            if ($row['count'] > 0) {
+                throw new Exception('You already have a leave application for this period.');
+            }
         
-        // Check if there's an existing leave application for the same period
-        $query = "SELECT COUNT(*) as count FROM leave_applications 
-                  WHERE user_id = ? 
-                  AND DATE(start_date) <= DATE(?)
-                  AND DATE(end_date) >= DATE(?)
-                  AND status != 'rejected'";
-        
-        $stmt = $conn->prepare($query);
-        if (!$stmt) {
-            throw new Exception("Failed to prepare statement: " . $conn->error);
-        }
-        
-        $stmt->bind_param("iss", $userId, $endDate, $startDate);
-        if (!$stmt->execute()) {
-            throw new Exception("Failed to execute query: " . $stmt->error);
-        }
-        
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-        
-        if ($row['count'] > 0) {
-            throw new Exception('You already have a leave application for this period.');
-        }
-        
-        // Check leave balance
-        $balances = getUserLeaveBalances($userId);
-        
-        if (isset($balances[$leaveTypeId]) && $balances[$leaveTypeId]['remaining_days'] < $totalDays) {
-            throw new Exception('You do not have enough leave balance for this leave type.');
-        }
+            // Check leave balance (skip for permission leave as it has its own balance)
+            if (!$isPermission) {
+                $balances = getUserLeaveBalances($userId);
+                
+                if (isset($balances[$leaveTypeId]) && $balances[$leaveTypeId]['remaining_days'] < $totalDays) {
+                    throw new Exception('You do not have enough leave balance for this leave type.');
+                }
+            }
         
         // Begin transaction
         $conn->begin_transaction();
         
         // Insert leave application
-        $query = "INSERT INTO leave_applications (user_id, leave_type_id, start_date, end_date, total_days, reason) 
-                  VALUES (?, ?, ?, ?, ?, ?)";
+        $query = "INSERT INTO leave_applications (user_id, leave_type_id, start_date, end_date, total_days, reason, is_permission, permission_slot) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        
+        $isPermissionInt = $isPermission ? 1 : 0;
+        $permissionSlotValue = $isPermission ? $permissionSlot : null;
         
         $stmt = $conn->prepare($query);
-        $stmt->bind_param("iissis", $userId, $leaveTypeId, $startDate, $endDate, $totalDays, $reason);
+        $stmt->bind_param("iissdiss", $userId, $leaveTypeId, $startDate, $endDate, $totalDays, $reason, $isPermissionInt, $permissionSlotValue);
         $stmt->execute();
         
         // Get leave application ID
         $applicationId = $conn->insert_id;
+        
+        // Handle class adjustments for permission leave
+        if ($isPermission && isset($_POST['adjustment_dates'])) {
+            $adjustmentDates = $_POST['adjustment_dates'];
+            $adjustmentTimes = $_POST['adjustment_times'] ?? [];
+            $adjustmentSubjects = $_POST['adjustment_subjects'] ?? [];
+            $adjustmentFaculty = $_POST['adjustment_faculty'] ?? [];
+            
+            $adjustmentQuery = "INSERT INTO class_adjustments 
+                               (application_id, class_date, class_time, subject, adjusted_by, status) 
+                               VALUES (?, ?, ?, ?, ?, 'pending')";
+            $stmt = $conn->prepare($adjustmentQuery);
+            
+            foreach ($adjustmentDates as $index => $date) {
+                if (!empty($date) && !empty($adjustmentTimes[$index]) && !empty($adjustmentSubjects[$index]) && !empty($adjustmentFaculty[$index])) {
+                    $classDate = date('Y-m-d', strtotime($date));
+                    $time = $adjustmentTimes[$index];
+                    $subject = $adjustmentSubjects[$index];
+                    $facultyId = $adjustmentFaculty[$index];
+                    
+                    $stmt->bind_param("isssi", $applicationId, $classDate, $time, $subject, $facultyId);
+                    $stmt->execute();
+                }
+            }
+        }
         
         // Get leave type name for notifications
         $leaveTypeQuery = "SELECT type_name FROM leave_types WHERE type_id = ?";
@@ -199,9 +260,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hodId = $row['user_id'];
             $hodEmail = $row['email'];
             
-            // Send database notification
-            $notificationTitle = 'New Leave Application';
-            $notificationMessage = $_SESSION['name'] . ' has applied for leave from ' . date('d-m-Y', strtotime($startDate)) . ' to ' . date('d-m-Y', strtotime($endDate)) . '. Please review.';
+            // Format notification message based on leave type
+            if ($isPermission) {
+                $slotText = ($permissionSlot == 'morning') ? 'Morning (8:40 AM – 10:20 AM)' : 'Evening (3:20 PM – 5:00 PM)';
+                $notificationTitle = 'New Permission Leave Application';
+                $notificationMessage = $_SESSION['name'] . ' has applied for permission leave on ' . 
+                                    date('d-m-Y', strtotime($startDate)) . ' (' . $slotText . '). Please review.';
+            } else {
+                $notificationTitle = 'New Leave Application';
+                $notificationMessage = $_SESSION['name'] . ' has applied for leave from ' . 
+                                    date('d-m-Y', strtotime($startDate)) . ' to ' . 
+                                    date('d-m-Y', strtotime($endDate)) . '. Please review.';
+            }
             
             $query = "INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)";
             $stmt = $conn->prepare($query);
@@ -216,12 +286,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $leaveType['type_name'],
                 $startDate,
                 $endDate,
-                $reason
+                $reason,
+                $isPermission,
+                $permissionSlot ?? null
             );
         }
         
         // Special notifications for specific leave types
-        if ($leaveTypeId == 4) { // Medical leave
+        if ($isPermission) {
+            // For permission leave, we don't need additional notifications
+        } else if ($leaveTypeId == 4) { // Medical leave
             // Notify admin and send email
             $adminQuery = "SELECT u.user_id, u.email FROM users u 
                           JOIN roles r ON u.role_id = r.role_id 
@@ -250,9 +324,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $leaveType['type_name'],
                     $startDate,
                     $endDate,
-                    $reason
+                    $reason,
+                    $isPermission,
+                    $permissionSlot ?? null
                 );
             }
+        }
         }
 
         // Commit transaction
@@ -324,9 +401,18 @@ try {
                     <div class="alert alert-success"><?php echo $success; ?></div>
                 <?php endif; ?>
                 
-                <div class="card shadow-sm">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Apply for Leave</h5>
+                            <button type="button" class="btn btn-outline-primary" id="apply_permission_btn">
+                                <i class="fas fa-clock"></i> Apply for Permission Leave
+                            </button>
+                        </div>
+                    </div>
                     <div class="card-body">
                         <form id="leave_application_form" method="POST" action="" enctype="multipart/form-data" class="leave-form">
+                            <input type="hidden" name="is_permission" id="is_permission" value="0">
                             <!-- Leave Type Section -->
                             <div class="form-section">
                                 <h5 class="form-section-title">Leave Type</h5>
@@ -470,6 +556,60 @@ try {
         </div>
     </div>
     
+    <!-- Permission Leave Modal -->
+    <div class="modal fade" id="permissionLeaveModal" tabindex="-1" role="dialog" aria-labelledby="permissionLeaveModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="permissionLeaveModalLabel">Apply for Permission Leave</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="permission_leave_form">
+                        <div class="form-group">
+                            <label for="permission_date">Date <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control datepicker" id="permission_date" name="permission_date" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Time Slot <span class="text-danger">*</span></label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="permission_slot" id="morning_slot" value="morning" required>
+                                <label class="form-check-label" for="morning_slot">
+                                    8:40 AM – 10:20 AM (Morning)
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="permission_slot" id="evening_slot" value="afternoon" required>
+                                <label class="form-check-label" for="evening_slot">
+                                    3:20 PM – 5:00 PM (Evening)
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="permission_reason">Reason <span class="text-danger">*</span></label>
+                            <textarea class="form-control" id="permission_reason" name="reason" rows="3" required></textarea>
+                        </div>
+                        <div id="permission_class_adjustments">
+                            <h6>Class Adjustments</h6>
+                            <div id="permission_class_adjustment_container">
+                                <!-- Class adjustment fields will be added here -->
+                            </div>
+                            <button type="button" id="add_permission_class_adjustment" class="btn btn-sm btn-outline-secondary mt-2">
+                                <i class="fas fa-plus"></i> Add Class Adjustment
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="submit_permission_leave">Submit Permission</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- Class Adjustment Template (Hidden) -->
     <template id="class_adjustment_template">
         <div class="class-adjustment-row mt-3 border rounded p-3 bg-light shadow-sm">
@@ -557,7 +697,108 @@ try {
     <script src="https://cdn.jsdelivr.net/npm/jquery-validation@1.19.3/dist/jquery.validate.min.js"></script>
     <link rel="stylesheet" href="assets/css/leave-form.css">
     
+    <!-- Permission Leave Class Adjustment Template -->
+    <template id="permission_class_adjustment_template">
+        <div class="class-adjustment-row mt-2 border rounded p-2 bg-light">
+            <div class="row">
+                <div class="col-md-5">
+                    <div class="form-group mb-2">
+                        <label>Date</label>
+                        <input type="text" class="form-control adjustment-date" name="adjustment_dates[]" required>
+                    </div>
+                </div>
+                <div class="col-md-5">
+                    <div class="form-group mb-2">
+                        <label>Time</label>
+                        <select class="form-control adjustment-time" name="adjustment_times[]" required>
+                            <option value="">Select Time</option>
+                            <option value="8:40 AM - 10:20 AM">8:40 AM - 10:20 AM</option>
+                            <option value="10:30 AM - 12:10 PM">10:30 AM - 12:10 PM</option>
+                            <option value="12:20 PM - 2:00 PM">12:20 PM - 2:00 PM</option>
+                            <option value="2:10 PM - 3:50 PM">2:10 PM - 3:50 PM</option>
+                            <option value="4:00 PM - 5:40 PM">4:00 PM - 5:40 PM</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="button" class="btn btn-sm btn-danger remove-permission-adjustment"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Subject</label>
+                        <input type="text" class="form-control" name="adjustment_subjects[]" required>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Adjusted By</label>
+                        <select class="form-control" name="adjustment_faculty[]" required>
+                            <option value="">Select Faculty</option>
+                            <?php foreach ($facultyMembers as $faculty): ?>
+                                <option value="<?php echo $faculty['user_id']; ?>">
+                                    <?php echo htmlspecialchars($faculty['first_name'] . ' ' . $faculty['last_name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
     <script>
+        // Function to initialize datepicker for permission leave
+        function initializePermissionDatePicker() {
+            $('#permission_date').daterangepicker({
+                singleDatePicker: true,
+                autoUpdateInput: true,
+                minDate: moment(),
+                locale: {
+                    format: 'YYYY-MM-DD'
+                }
+            });
+        }
+        
+        // Function to handle permission leave submission
+        function submitPermissionLeave() {
+            const formData = {
+                is_permission: 1,
+                permission_date: $('#permission_date').val(),
+                permission_slot: $('input[name="permission_slot"]:checked').val(),
+                reason: $('#permission_reason').val(),
+                adjustments: []
+            };
+            
+            // Validate required fields
+            if (!formData.permission_date || !formData.permission_slot || !formData.reason) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            
+            // Collect class adjustments
+            $('.permission-adjustment-row').each(function() {
+                const row = $(this);
+                formData.adjustments.push({
+                    date: row.find('.adjustment-date').val(),
+                    time: row.find('.adjustment-time').val(),
+                    subject: row.find('input[name^="adjustment_subjects"]').val(),
+                    faculty_id: row.find('select[name^="adjustment_faculty"]').val()
+                });
+            });
+            
+            // Add adjustments to form data
+            const $form = $('#leave_application_form');
+            $form.find('input[name="is_permission"]').val('1');
+            $form.find('input[name="leave_type_id"]').val('');
+            $form.find('input[name="date_range"]').val(formData.permission_date);
+            $form.find('textarea[name="reason"]').val(formData.reason);
+            $form.find('input[name="permission_slot"]').remove();
+            $form.append(`<input type="hidden" name="permission_slot" value="${formData.permission_slot}">`);
+            
+            // Submit the form
+            $form.submit();
+        }
+        
         // Function to calculate working days
         function calculateWorkingDays(startDate, endDate, leaveTypeId) {
             $.ajax({
@@ -679,6 +920,51 @@ try {
         }
         
         $(document).ready(function() {
+            // Initialize permission date picker
+            initializePermissionDatePicker();
+            
+            // Show permission leave modal
+            $('#apply_permission_btn').on('click', function() {
+                $('#permissionLeaveModal').modal('show');
+            });
+            
+            // Submit permission leave
+            $('#submit_permission_leave').on('click', submitPermissionLeave);
+            
+            // Add permission class adjustment
+            $('#add_permission_class_adjustment').on('click', function() {
+                const template = document.querySelector('#permission_class_adjustment_template');
+                const clone = document.importNode(template.content, true);
+                
+                // Initialize date picker for the new row
+                const dateInput = clone.querySelector('.adjustment-date');
+                $(dateInput).daterangepicker({
+                    singleDatePicker: true,
+                    autoUpdateInput: true,
+                    locale: {
+                        format: 'YYYY-MM-DD'
+                    }
+                });
+                
+                // Add remove button functionality
+                clone.querySelector('.remove-permission-adjustment').addEventListener('click', function() {
+                    this.closest('.class-adjustment-row').remove();
+                });
+                
+                // Append the new row
+                document.getElementById('permission_class_adjustment_container').appendChild(clone);
+            });
+            
+            // Remove permission class adjustment
+            $(document).on('click', '.remove-permission-adjustment', function() {
+                $(this).closest('.class-adjustment-row').remove();
+            });
+            
+            // Reset permission form when modal is hidden
+            $('#permissionLeaveModal').on('hidden.bs.modal', function() {
+                $('#permission_leave_form')[0].reset();
+                $('#permission_class_adjustment_container').empty();
+            });
             // Initialize date range picker for regular leave
             $('.date-range-picker').daterangepicker({
                 opens: 'left',

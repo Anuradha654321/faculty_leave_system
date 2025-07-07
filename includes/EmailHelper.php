@@ -49,7 +49,7 @@ class EmailHelper {
         }
     }
 
-    public function sendLeaveAppliedEmail($to, $leaveId, $leaveType, $startDate, $endDate, $reason) {
+    public function sendLeaveAppliedEmail($to, $leaveId, $leaveType, $startDate, $endDate, $reason, $isPermission = false, $permissionSlot = null) {
         try {
             // Reset mailer instance
             $this->mailer->clearAllRecipients();
@@ -65,13 +65,23 @@ class EmailHelper {
             $this->mailer->Subject = "Leave Application Received (ID: $leaveId)";
             
             // Create email body
-            $body = "<h2>Leave Application Received</h2>";
+            $body = "<h2>" . ($isPermission ? 'Permission' : 'Leave') . " Application Received</h2>";
             $body .= "<p>Dear Faculty Member,</p>";
-            $body .= "<p>Your leave application has been submitted successfully. Here are the details:</p>";
+            $body .= "<p>Your " . ($isPermission ? 'permission' : 'leave') . " application has been submitted successfully. Here are the details:</p>";
             $body .= "<ul>";
-            $body .= "<li><strong>Leave Type:</strong> $leaveType</li>";
-            $body .= "<li><strong>Start Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
-            $body .= "<li><strong>End Date:</strong> " . date('d-m-Y', strtotime($endDate)) . "</li>";
+            $body .= "<li><strong>" . ($isPermission ? 'Permission' : 'Leave') . " Type:</strong> $leaveType</li>";
+            
+            if ($isPermission) {
+                $slotText = ($permissionSlot == 'morning') ? 'Morning (8:40 AM – 10:20 AM)' : 'Evening (3:20 PM – 5:00 PM)';
+                $body .= "<li><strong>Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
+                $body .= "<li><strong>Time Slot:</strong> $slotText</li>";
+            } else {
+                $body .= "<li><strong>Start Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
+                if ($startDate != $endDate) {
+                    $body .= "<li><strong>End Date:</strong> " . date('d-m-Y', strtotime($endDate)) . "</li>";
+                }
+            }
+            
             $body .= "<li><strong>Reason:</strong> $reason</li>";
             $body .= "</ul>";
             $body .= "<p>Please review and take appropriate action.</p>";
@@ -94,7 +104,7 @@ class EmailHelper {
         }
     }
 
-    public function sendLeaveApprovedEmail($to, $leaveId, $leaveType, $startDate, $endDate, $approver) {
+    public function sendLeaveApprovedEmail($to, $leaveId, $leaveType, $startDate, $endDate, $approver, $isPermission = false, $permissionSlot = null) {
         try {
             // Reset mailer instance
             $this->mailer->clearAllRecipients();
@@ -110,13 +120,22 @@ class EmailHelper {
             $this->mailer->Subject = "Leave Application Approved (ID: $leaveId)";
             
             // Create email body
-            $body = "<h2>Leave Application Approved</h2>";
+            $body = "<h2>" . ($isPermission ? 'Permission' : 'Leave') . " Application Approved</h2>";
             $body .= "<p>Dear Faculty Member,</p>";
-            $body .= "<p>Your leave application has been approved by $approver. Here are the details:</p>";
+            $body .= "<p>Your " . ($isPermission ? 'permission' : 'leave') . " application has been approved by $approver. Here are the details:</p>";
             $body .= "<ul>";
-            $body .= "<li><strong>Leave Type:</strong> $leaveType</li>";
-            $body .= "<li><strong>Start Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
-            $body .= "<li><strong>End Date:</strong> " . date('d-m-Y', strtotime($endDate)) . "</li>";
+            $body .= "<li><strong>" . ($isPermission ? 'Permission' : 'Leave') . " Type:</strong> $leaveType</li>";
+            
+            if ($isPermission) {
+                $slotText = ($permissionSlot == 'morning') ? 'Morning (8:40 AM – 10:20 AM)' : 'Evening (3:20 PM – 5:00 PM)';
+                $body .= "<li><strong>Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
+                $body .= "<li><strong>Time Slot:</strong> $slotText</li>";
+            } else {
+                $body .= "<li><strong>Start Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
+                if ($startDate != $endDate) {
+                    $body .= "<li><strong>End Date:</strong> " . date('d-m-Y', strtotime($endDate)) . "</li>";
+                }
+            }
             $body .= "</ul>";
             $body .= "<p>Best regards,<br>Faculty Leave System</p>";
             
@@ -137,7 +156,7 @@ class EmailHelper {
         }
     }
 
-    public function sendLeaveRejectedEmail($to, $leaveId, $leaveType, $startDate, $endDate, $reason) {
+    public function sendLeaveRejectedEmail($to, $leaveId, $leaveType, $startDate, $endDate, $reason, $isPermission = false, $permissionSlot = null) {
         try {
             // Reset mailer instance
             $this->mailer->clearAllRecipients();
@@ -153,14 +172,24 @@ class EmailHelper {
             $this->mailer->Subject = "Leave Application Rejected (ID: $leaveId)";
             
             // Create email body
-            $body = "<h2>Leave Application Rejected</h2>";
+            $body = "<h2>" . ($isPermission ? 'Permission' : 'Leave') . " Application Rejected</h2>";
             $body .= "<p>Dear Faculty Member,</p>";
-            $body .= "<p>Your leave application has been rejected. Here are the details:</p>";
+            $body .= "<p>Your " . ($isPermission ? 'permission' : 'leave') . " application has been rejected. Here are the details:</p>";
             $body .= "<ul>";
-            $body .= "<li><strong>Leave Type:</strong> $leaveType</li>";
-            $body .= "<li><strong>Start Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
-            $body .= "<li><strong>End Date:</strong> " . date('d-m-Y', strtotime($endDate)) . "</li>";
-            $body .= "<li><strong>Reason:</strong> $reason</li>";
+            $body .= "<li><strong>" . ($isPermission ? 'Permission' : 'Leave') . " Type:</strong> $leaveType</li>";
+            
+            if ($isPermission) {
+                $slotText = ($permissionSlot == 'morning') ? 'Morning (8:40 AM – 10:20 AM)' : 'Evening (3:20 PM – 5:00 PM)';
+                $body .= "<li><strong>Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
+                $body .= "<li><strong>Time Slot:</strong> $slotText</li>";
+            } else {
+                $body .= "<li><strong>Start Date:</strong> " . date('d-m-Y', strtotime($startDate)) . "</li>";
+                if ($startDate != $endDate) {
+                    $body .= "<li><strong>End Date:</strong> " . date('d-m-Y', strtotime($endDate)) . "</li>";
+                }
+            }
+            
+            $body .= "<li><strong>Reason for Rejection:</strong> $reason</li>";
             $body .= "</ul>";
             $body .= "<p>Best regards,<br>Faculty Leave System</p>";
             
