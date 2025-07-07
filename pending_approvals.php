@@ -311,9 +311,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_application'])
                     $currentYear = date('Y');
                     
                     // Determine if further approval is needed based on the rules:
-                    // 1. Casual leaves of 3 days or less only need HOD approval
-                    // 2. Casual leaves of more than 3 days need both HOD and admin approval
-                    if ((strpos($checkRow['type_name'], 'casual_leave') !== false) && $checkRow['total_days'] <= 3) {
+                    // 1. Permission leaves and casual leaves of 3 days or less only need HOD approval
+                    // 2. Other leaves or casual leaves of more than 3 days need both HOD and admin approval
+                    if ($checkRow['is_permission'] == 1 || (strpos($checkRow['type_name'], 'casual_leave') !== false && $checkRow['total_days'] <= 3)) {
                         // Casual leaves of 3 days or less only need HOD approval
                         $newStatus = 'approved';
                         

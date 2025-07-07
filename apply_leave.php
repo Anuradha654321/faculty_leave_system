@@ -95,7 +95,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $conn = connectDB();
     if (!$conn) {
         $error = "Database connection failed: " . mysqli_connect_error();
-        return;
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => $error]);
+        exit;
     }
     
     try {
@@ -103,6 +105,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isPermission = isset($_POST['is_permission']) && $_POST['is_permission'] == 1;
         
         if ($isPermission) {
+            // Debug log
+            error_log("Processing permission leave submission");
+            error_log("POST data: " . print_r($_POST, true));
+            
             // Handle permission leave
             $permissionDate = $_POST['permission_date'];
             $permissionSlot = $_POST['permission_slot'];
@@ -113,21 +119,131 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Please select a date for the permission.');
             }
             
+            // Debug log
+            error_log("Permission date: $permissionDate, Slot: $permissionSlot");
+            
             // Set start and end dates to the same day for permission leave
             $startDate = date('Y-m-d', strtotime($permissionDate));
             $endDate = $startDate;
             $totalDays = 0.5; // Half day for permission leave
-            $leaveTypeId = 0; // Will be set to permission leave type ID
             
             // Get permission leave type ID
             $leaveTypeQuery = "SELECT type_id FROM leave_types WHERE type_name = 'permission_leave' LIMIT 1";
             $result = $conn->query($leaveTypeQuery);
-            if ($result->num_rows > 0) {
+            if ($result && $result->num_rows > 0) {
                 $row = $result->fetch_assoc();
                 $leaveTypeId = $row['type_id'];
+                error_log("Found permission leave type ID: $leaveTypeId");
             } else {
+                error_log("Permission leave type not found. SQL Error: " . $conn->error);
                 throw new Exception('Permission leave type not found in the system.');
             }
+            
+            $userId = $_SESSION['user_id'];
+            
+            // Check if there's an existing leave application for the same period and slot
+            $query = "SELECT COUNT(*) as count FROM leave_applications 
+                      WHERE user_id = ? 
+                      AND DATE(start_date) = DATE(?)
+                      AND permission_slot = ?
+                      AND status != 'rejected'";
+            
+            $stmt = $conn->prepare($query);
+            $stmt->bind_param("iss", $userId, $startDate, $permissionSlot);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $row = $result->fetch_assoc();
+            
+            if ($row['count'] > 0) {
+                throw new Exception('You already have a permission leave application for this date and slot.');
+            }
+            
+            // Begin transaction
+            $conn->begin_transaction();
+            
+            // Insert permission leave application
+            $query = "INSERT INTO leave_applications 
+                      (user_id, leave_type_id, start_date, end_date, total_days, reason, is_permission, permission_slot, status) 
+                      VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'pending')";
+            
+            $stmt = $conn->prepare($query);
+            $stmt->bind_param("iissdss", $userId, $leaveTypeId, $startDate, $endDate, $totalDays, $reason, $permissionSlot);
+            $stmt->execute();
+            
+            $applicationId = $conn->insert_id;
+            
+            // Handle class adjustments if provided
+            if (isset($_POST['adjustment_dates'])) {
+                $adjustmentDates = $_POST['adjustment_dates'];
+                $adjustmentTimes = $_POST['adjustment_times'] ?? [];
+                $adjustmentSubjects = $_POST['adjustment_subjects'] ?? [];
+                $adjustmentFaculty = $_POST['adjustment_faculty'] ?? [];
+                
+                $adjustmentQuery = "INSERT INTO class_adjustments 
+                                   (application_id, class_date, class_time, subject, adjusted_by, status) 
+                                   VALUES (?, ?, ?, ?, ?, 'pending')";
+                $stmt = $conn->prepare($adjustmentQuery);
+                
+                foreach ($adjustmentDates as $index => $date) {
+                    if (!empty($date) && !empty($adjustmentTimes[$index]) && !empty($adjustmentSubjects[$index]) && !empty($adjustmentFaculty[$index])) {
+                        $classDate = date('Y-m-d', strtotime($date));
+                        $time = $adjustmentTimes[$index];
+                        $subject = $adjustmentSubjects[$index];
+                        $facultyId = $adjustmentFaculty[$index];
+                        
+                        $stmt->bind_param("isssi", $applicationId, $classDate, $time, $subject, $facultyId);
+                        $stmt->execute();
+                    }
+                }
+            }
+            
+            // Send notification to HOD
+            $hodQuery = "SELECT u.user_id, u.email FROM users u 
+                         JOIN roles r ON u.role_id = r.role_id 
+                         WHERE r.role_name = 'hod' AND u.dept_id = ?";
+            
+            $stmt = $conn->prepare($hodQuery);
+            $stmt->bind_param("i", $_SESSION['dept_id']);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            
+            if ($row = $result->fetch_assoc()) {
+                $hodId = $row['user_id'];
+                $hodEmail = $row['email'];
+                
+                // Format notification message
+                $slotText = ($permissionSlot == 'morning') ? 'Morning (8:40 AM – 10:20 AM)' : 'Evening (3:20 PM – 5:00 PM)';
+                $notificationTitle = 'New Permission Leave Application';
+                $notificationMessage = $_SESSION['name'] . ' has applied for permission leave on ' . 
+                                    date('d-m-Y', strtotime($startDate)) . ' (' . $slotText . '). Please review.';
+                
+                // Insert notification for HOD
+                $query = "INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)";
+                $stmt = $conn->prepare($query);
+                $stmt->bind_param("iss", $hodId, $notificationTitle, $notificationMessage);
+                $stmt->execute();
+                
+                // Send email notification
+                $emailHelper = new EmailHelper();
+                $emailHelper->sendLeaveAppliedEmail(
+                    $hodEmail,
+                    $applicationId,
+                    'Permission Leave',
+                    $startDate,
+                    $endDate,
+                    $reason,
+                    true,
+                    $permissionSlot
+                );
+            }
+            
+            $conn->commit();
+            
+            // Return JSON response for AJAX request
+            header('Content-Type: application/json');
+            echo json_encode(['success' => true, 'message' => 'Permission leave application submitted successfully.']);
+            exit;
+            
         } else {
             // Handle regular leave
             $leaveTypeId = $_POST['leave_type_id'];
@@ -294,7 +410,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Special notifications for specific leave types
         if ($isPermission) {
-            // For permission leave, we don't need additional notifications
+            // For permission leave, we'll follow the same flow as regular leaves
+            // The HOD will review first, then admin if needed based on leave type settings
+            // No special handling needed here as the initial HOD notification is already sent
         } else if ($leaveTypeId == 4) { // Medical leave
             // Notify admin and send email
             $adminQuery = "SELECT u.user_id, u.email FROM users u 
@@ -353,6 +471,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $conn->rollback();
         }
         $error = 'An error occurred: ' . $e->getMessage();
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => false,
+            'message' => $error,
+            'error' => true
+        ]);
+        exit;
     } finally {
         if (isset($conn)) {
             closeDB($conn);
@@ -769,34 +894,89 @@ try {
                 adjustments: []
             };
             
+            // Debug log
+            console.log('Submitting permission leave with data:', formData);
+            
             // Validate required fields
-            if (!formData.permission_date || !formData.permission_slot || !formData.reason) {
-                alert('Please fill in all required fields');
-                return;
+            if (!formData.permission_date) {
+                alert('Please select a date for permission leave');
+                return false;
+            }
+            
+            if (!formData.permission_slot) {
+                alert('Please select a time slot (Morning/Evening)');
+                return false;
+            }
+            
+            if (!formData.reason || formData.reason.trim() === '') {
+                alert('Please enter a reason for permission leave');
+                return false;
             }
             
             // Collect class adjustments
+            let hasAdjustmentError = false;
             $('.permission-adjustment-row').each(function() {
                 const row = $(this);
-                formData.adjustments.push({
+                const adjustment = {
                     date: row.find('.adjustment-date').val(),
                     time: row.find('.adjustment-time').val(),
                     subject: row.find('input[name^="adjustment_subjects"]').val(),
                     faculty_id: row.find('select[name^="adjustment_faculty"]').val()
-                });
+                };
+                
+                // Validate adjustment fields
+                if (!adjustment.date || !adjustment.time || !adjustment.subject || !adjustment.faculty_id) {
+                    alert('Please fill in all class adjustment details');
+                    hasAdjustmentError = true;
+                    return false;
+                }
+                
+                formData.adjustments.push(adjustment);
             });
             
-            // Add adjustments to form data
-            const $form = $('#leave_application_form');
-            $form.find('input[name="is_permission"]').val('1');
-            $form.find('input[name="leave_type_id"]').val('');
-            $form.find('input[name="date_range"]').val(formData.permission_date);
-            $form.find('textarea[name="reason"]').val(formData.reason);
-            $form.find('input[name="permission_slot"]').remove();
-            $form.append(`<input type="hidden" name="permission_slot" value="${formData.permission_slot}">`);
-            
-            // Submit the form
-            $form.submit();
+            if (hasAdjustmentError) return false;
+
+            // Submit permission leave directly via AJAX
+            $.ajax({
+                url: window.location.href,
+                type: 'POST',
+                data: {
+                    is_permission: 1,
+                    permission_date: formData.permission_date,
+                    permission_slot: formData.permission_slot,
+                    reason: formData.reason,
+                    total_days: 0.5,
+                    adjustment_dates: formData.adjustments.map(adj => adj.date),
+                    adjustment_times: formData.adjustments.map(adj => adj.time),
+                    adjustment_subjects: formData.adjustments.map(adj => adj.subject),
+                    adjustment_faculty: formData.adjustments.map(adj => adj.faculty_id)
+                },
+                dataType: 'json',
+                success: function(response) {
+                    console.log('Server response:', response);
+                    if (response.success) {
+                        // Close the modal
+                        $('#permissionLeaveModal').modal('hide');
+                        // Show success message and reload
+                        alert(response.message || 'Permission leave submitted successfully.');
+                        location.reload();
+                    } else {
+                        alert(response.message || 'Failed to submit permission leave: ' + (response.error || 'Unknown error'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('AJAX Error:', {xhr: xhr, status: status, error: error});
+                    console.log('Response Text:', xhr.responseText);
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        alert('Error: ' + (response.message || response.error || 'Unknown error occurred'));
+                    } catch(e) {
+                        alert('Failed to submit permission leave. Server error: ' + error);
+                    }
+                }
+            });
+
+            return false; // Prevent form submission
         }
         
         // Function to calculate working days
@@ -920,11 +1100,35 @@ try {
         }
         
         $(document).ready(function() {
-            // Initialize permission date picker
-            initializePermissionDatePicker();
+            // Handle permission leave form submission
+            $('#permission_leave_form').on('submit', function(e) {
+                e.preventDefault();
+                submitPermissionLeave();
+                return false;
+            });
+            
+            // Initialize date picker for permission leave
+            $('#permission_date').daterangepicker({
+                singleDatePicker: true,
+                showDropdowns: true,
+                autoUpdateInput: false,
+                minDate: moment().startOf('day'),
+                locale: {
+                    format: 'DD-MM-YYYY'
+                }
+            });
+            
+            $('#permission_date').on('apply.daterangepicker', function(ev, picker) {
+                $(this).val(picker.startDate.format('DD-MM-YYYY'));
+            });
+            
+            $('#permission_date').on('cancel.daterangepicker', function(ev, picker) {
+                $(this).val('');
+            });
             
             // Show permission leave modal
             $('#apply_permission_btn').on('click', function() {
+                // Reset the form
                 $('#permissionLeaveModal').modal('show');
             });
             
@@ -1246,7 +1450,17 @@ try {
                     $(element).removeClass('is-invalid').addClass('is-valid');
                 },
                 submitHandler: function(form) {
-                    // Validate casual leave dates
+                    // Skip validation if this is a permission leave submission
+                    if ($(form).find('input[name="is_permission"]').val() === '1') {
+                        // Only require date_range, total_days, reason, and permission_slot for permission leave
+                        if (!$('#date_range').val() || !$('#total_days').val() || !$('#reason').val() || !$('input[name="permission_slot"]').val()) {
+                            alert('Please fill all required fields for permission leave.');
+                            return false;
+                        }
+                        return true; // Already validated in submitPermissionLeave()
+                    }
+                    
+                    // Original validation for regular leave
                     const leaveTypeId = $('#leave_type_id').val();
                     if (leaveTypeId === '2' || leaveTypeId === '3') { // Casual leave prior or emergency
                         let hasDate = false;
@@ -1298,7 +1512,7 @@ try {
                         if (!valid) return false;
                     }
                     
-                    form.submit();
+                    return true;
                 }
             });
             
